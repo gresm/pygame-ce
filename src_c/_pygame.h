@@ -119,6 +119,17 @@ PG_UnlockMutex(SDL_mutex *mutex)
 
 #define PG_INIT_TIMER 0
 
+#define PG_PRESSED true
+#define PG_RELEASED false
+#define PG_JoystickGetGUID(joy) SDL_GetJoystickGUIDForID(joy)
+#define PG_JoystickGUID2String(guid, pt, sz) SDL_GUIDToString(guid, pt, sz)
+#define PG_GetWindowPoperty(win, name) \
+    SDL_GetPointerProperty(SDL_GetWindowProperties(win), name, NULL)
+#define PG_SetWindowMouseGrab(win, grab) SDL_SetWindowMouseGrab(win, grab);
+#define PG_GetWindowMouseGrab(win) SDL_GetWindowMouseGrab(win);
+#define PG_SetWindowRelativeMouseMode(win, enabled) \
+    SDL_SetWindowRelativeMouseMode(win, enabled)
+
 #else /* ~SDL_VERSION_ATLEAST(3, 0, 0)*/
 #define PG_ShowCursor() SDL_ShowCursor(SDL_ENABLE)
 #define PG_HideCursor() SDL_ShowCursor(SDL_DISABLE)
@@ -230,7 +241,18 @@ struct SDL_BlitMap {
 
 #endif
 
-#endif
+#define PG_PRESSED SDL_PRESSED
+#define PG_RELEASED SDL_RELEASED
+#define PG_JoystickGetGUID(joy) SDL_JoystickGetDeviceGUID(joy)
+#define PG_JoystickGUID2String(guid, pt, sz) \
+    SDL_JoystickGetGUIDString(guid, pt, sz)
+#define PG_GetWindowPoperty(win, name) SDL_GetWindowData(win, name)
+#define PG_SetWindowMouseGrab(win, grab) SDL_SetWindowGrab(win, grab);
+#define PG_GetWindowMouseGrab(win) SDL_GetWindowGrab(win);
+#define PG_SetWindowRelativeMouseMode(win, enabled) \
+    SDL_SetRelativeMouseMode(enabled)
+
+#endif /* ~SDL_VERSION_ATLEAST(3, 0, 0)*/
 
 /* SDL 1.2 constants removed from SDL 2 */
 typedef enum {

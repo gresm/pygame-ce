@@ -43,7 +43,6 @@ display = py.extension_module(
 endif
 
 # TODO: support SDL3
-if sdl_api != 3
 _event = py.extension_module(
     '_event',
     '_event.c',
@@ -52,7 +51,6 @@ _event = py.extension_module(
     install: true,
     subdir: pg,
 )
-endif
 
 # TODO: support SDL3
 if sdl_api != 3

@@ -352,14 +352,18 @@ class ControllerSensorUpdate(Event):
     type: int = _c.CONTROLLERSENSORUPDATE
 
 class AudioDeviceAdded(Event):
+    """Properties iscapture and recording are the same."""
     type: int = _c.AUDIODEVICEADDED
     which: int
     iscapture: int
+    recording: int
 
 class AudioDeviceRemoved(Event):
+    """Properties iscapture and recording are the same."""
     type: int = _c.AUDIODEVICEREMOVED
     which: int
     iscapture: int
+    recording: int
 
 class RenderTargetsReset(Event):
     type: int = _c.RENDER_TARGETS_RESET

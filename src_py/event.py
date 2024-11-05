@@ -549,8 +549,16 @@ ControllerTouchpadUp = _create_class(
 ControllerSensorUpdate = _create_class(
     pg.CONTROLLERSENSORUPDATE, "ControllerSensorUpdate", "Only for SDL 2.0.14+"
 )
-AudioDeviceAdded = _create_class(pg.AUDIODEVICEADDED, "AudioDeviceAdded", None)
-AudioDeviceRemoved = _create_class(pg.AUDIODEVICEREMOVED, "AudioDeviceRemoved", None)
+AudioDeviceAdded = _create_class(
+    pg.AUDIODEVICEADDED,
+    "AudioDeviceAdded",
+    "Properties iscapture and recording are the same.",
+)
+AudioDeviceRemoved = _create_class(
+    pg.AUDIODEVICEREMOVED,
+    "AudioDeviceRemoved",
+    "Properties iscapture and recording are the same.",
+)
 RenderTargetsReset = _create_class(pg.RENDER_TARGETS_RESET, "RenderTargetsReset", None)
 RenderDeviceReset = _create_class(pg.RENDER_DEVICE_RESET, "RenderDeviceReset", None)
 WindowShown = _create_class(pg.WINDOWSHOWN, "WindowShown", None)

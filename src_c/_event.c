@@ -33,7 +33,9 @@
 
 // The system message code is only tested on windows, so only
 //   include it there for now.
+#ifndef PG_SDL3
 #include <SDL_syswm.h>
+#endif
 
 #define JOYEVENT_INSTANCE_ID "instance_id"
 #define JOYEVENT_DEVICE_INDEX "device_index"
@@ -133,8 +135,42 @@ static PyObject *_event_class = NULL;
     }
 #endif /* not on emscripten */
 
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+#define EVENT_KEY_STATE(ev) (ev).key.down
+#define EVENT_KEY(ev) (ev).key.key
+#define EVENT_KEY_MODE(ev) (ev).key.mod
+#define EVENT_KEY_SCANCODE(ev) (ev).key.scancode
+
+/* Active event window event type. */
+#define _ACIVEEV_WINEV_TYPE(ev) (ev).window.data2
+
+#define EVENT_DROP_DATA(ev) (ev).drop.data
+// axis, button, touchpad
+#define EVENT_JOY_AXIS(ev) (ev).gaxis
+#define EVENT_JOY_BUTTON(ev) (ev).gbutton
+#define EVENT_JOY_TOUCHPAD(ev) (ev).gtouchpad
+#else
+#define EVENT_KEY_STATE(ev) (ev).key.state
+#define EVENT_KEY(ev) (ev).key.keysym.sym
+#define EVENT_KEY_MODE(ev) (ev).key.keysym.mod
+#define EVENT_KEY_SCANCODE(ev) (ev).key.keysym.scancode
+
+/* Active event window event type. */
+#define _ACIVEEV_WINEV_TYPE(ev) (ev).window.event
+
+#define EVENT_DROP_DATA(ev) (ev).drop.file
+#define EVENT_JOY_AXIS(ev) (ev).caxis
+#define EVENT_JOY_BUTTON(ev) (ev).cbutton
+#define EVENT_JOY_TOUCHPAD(ev) (ev).ctouchpad
+#endif
+
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+static Uint32
+_pg_repeat_callback(void *param, SDL_TimerID timerID, Uint32 interval)
+#else
 static Uint32
 _pg_repeat_callback(Uint32 interval, void *param)
+#endif
 {
     /* This function is called in a SDL Timer thread */
     PG_LOCK_EVFILTER_MUTEX
@@ -145,7 +181,7 @@ _pg_repeat_callback(Uint32 interval, void *param)
     PG_UNLOCK_EVFILTER_MUTEX
 
     repeat_event_copy.type = PGE_KEYREPEAT;
-    repeat_event_copy.key.state = SDL_PRESSED;
+    EVENT_KEY_STATE(repeat_event_copy) = PG_PRESSED;
     repeat_event_copy.key.repeat = 1;
     SDL_PushEvent(&repeat_event_copy);
     return repeat_interval_copy;
@@ -163,13 +199,13 @@ _pg_repeat_callback(Uint32 interval, void *param)
 static char
 _pg_unicode_from_event(SDL_Event *event)
 {
-    int capsheld = event->key.keysym.mod & KMOD_CAPS;
-    int shiftheld = event->key.keysym.mod & KMOD_SHIFT;
+    int capsheld = EVENT_KEY_MODE(*event) & KMOD_CAPS;
+    int shiftheld = EVENT_KEY_MODE(*event) & KMOD_SHIFT;
 
     int capitalize = (capsheld && !shiftheld) || (shiftheld && !capsheld);
-    SDL_Keycode key = event->key.keysym.sym;
+    SDL_Keycode key = EVENT_KEY(*event);
 
-    if (event->key.keysym.mod & KMOD_CTRL) {
+    if (EVENT_KEY_MODE(*event) & KMOD_CTRL) {
         /* Control Key held, send control-key related unicode. */
         if (key >= SDLK_a && key <= SDLK_z)
             return key - SDLK_a + 1;
@@ -234,7 +270,7 @@ def _pg_strip_utf8(string):
         return ""
 */
 static void
-_pg_strip_utf8(char *str, char *ret)
+_pg_strip_utf8(const char *str, char *ret)
 {
     Uint8 firstbyte = (Uint8)*str;
 
@@ -265,12 +301,12 @@ _pg_strip_utf8(char *str, char *ret)
 }
 
 static int
-_pg_put_event_unicode(SDL_Event *event, char *uni)
+_pg_put_event_unicode(SDL_Event *event, const char *uni)
 {
     int i;
     for (i = 0; i < MAX_SCAN_UNICODE; i++) {
         if (!scanunicode[i].key) {
-            scanunicode[i].key = event->key.keysym.scancode;
+            scanunicode[i].key = EVENT_KEY_SCANCODE(*event);
             _pg_strip_utf8(uni, scanunicode[i].unicode);
             return 1;
         }
@@ -286,7 +322,7 @@ _pg_get_event_unicode(SDL_Event *event)
     char c[4];
     int i;
     for (i = 0; i < MAX_SCAN_UNICODE; i++) {
-        if (scanunicode[i].key == event->key.keysym.scancode) {
+        if (scanunicode[i].key == EVENT_KEY_SCANCODE(*event)) {
             if (event->type == SDL_KEYUP) {
                 /* mark the position as free real estate for other
                  * events to occupy. */
@@ -352,8 +388,10 @@ _pg_pgevent_proxify_helper(Uint32 type, Uint8 proxify)
         _PG_HANDLE_PROXIFY(CONTROLLERTOUCHPADUP);
         _PG_HANDLE_PROXIFY(CONTROLLERSENSORUPDATE);
 #endif
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
         _PG_HANDLE_PROXIFY(DOLLARGESTURE);
         _PG_HANDLE_PROXIFY(DOLLARRECORD);
+#endif
         _PG_HANDLE_PROXIFY(DROPFILE);
         _PG_HANDLE_PROXIFY(DROPTEXT);
         _PG_HANDLE_PROXIFY(DROPBEGIN);
@@ -378,12 +416,16 @@ _pg_pgevent_proxify_helper(Uint32 type, Uint8 proxify)
         _PG_HANDLE_PROXIFY(MOUSEBUTTONDOWN);
         _PG_HANDLE_PROXIFY(MOUSEBUTTONUP);
         _PG_HANDLE_PROXIFY(MOUSEWHEEL);
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
         _PG_HANDLE_PROXIFY(MULTIGESTURE);
+#endif
         _PG_HANDLE_PROXIFY(NOEVENT);
         _PG_HANDLE_PROXIFY(QUIT);
         _PG_HANDLE_PROXIFY(RENDER_TARGETS_RESET);
         _PG_HANDLE_PROXIFY(RENDER_DEVICE_RESET);
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
         _PG_HANDLE_PROXIFY(SYSWMEVENT);
+#endif
         _PG_HANDLE_PROXIFY(TEXTEDITING);
         _PG_HANDLE_PROXIFY(TEXTINPUT);
         _PG_HANDLE_PROXIFY(VIDEORESIZE);
@@ -425,6 +467,7 @@ _pg_pgevent_deproxify(Uint32 type)
     return _pg_pgevent_proxify_helper(type, 0);
 }
 
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
 static int
 _pg_translate_windowevent(void *_, SDL_Event *event)
 {
@@ -434,8 +477,13 @@ _pg_translate_windowevent(void *_, SDL_Event *event)
     }
     return 1;
 }
+#endif
 
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+static bool SDLCALL
+#else
 static int SDLCALL
+#endif
 _pg_remove_pending_VIDEORESIZE(void *userdata, SDL_Event *event)
 {
     SDL_Event *new_event = (SDL_Event *)userdata;
@@ -448,7 +496,11 @@ _pg_remove_pending_VIDEORESIZE(void *userdata, SDL_Event *event)
     return 1;
 }
 
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+static bool SDLCALL
+#else
 static int SDLCALL
+#endif
 _pg_remove_pending_VIDEOEXPOSE(void *userdata, SDL_Event *event)
 {
     SDL_Event *new_event = (SDL_Event *)userdata;
@@ -466,16 +518,37 @@ _pg_remove_pending_VIDEOEXPOSE(void *userdata, SDL_Event *event)
  * This function can be called from multiple threads, so a mutex must be held
  * when this function tries to modify any global state (the mutex is not needed
  * on all branches of this function) */
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+static bool SDLCALL
+#else
 static int SDLCALL
+#endif
 pg_event_filter(void *_, SDL_Event *event)
 {
     SDL_Event newdownevent, newupevent, newevent = *event;
-    int x, y, i;
 
-    if (event->type == SDL_WINDOWEVENT) {
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+    float x, y;
+#else
+    int x, y;
+#endif
+    int i;
+
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+    if (event->type >= SDL_EVENT_WINDOW_FIRST &&
+        event->type <= SDL_EVENT_WINDOW_LAST)
+#else
+    if (event->type == SDL_WINDOWEVENT)
+#endif
+    {
         /* DON'T filter SDL_WINDOWEVENTs here. If we delete events, they
          * won't be available to low-level SDL2 either.*/
-        switch (event->window.event) {
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+        int window_ev = event->type;
+#else
+        int window_ev = event->window.event;
+#endif
+        switch (window_ev) {
             case SDL_WINDOWEVENT_RESIZED:
                 SDL_FilterEvents(_pg_remove_pending_VIDEORESIZE, &newevent);
 
@@ -495,6 +568,8 @@ pg_event_filter(void *_, SDL_Event *event)
             case SDL_WINDOWEVENT_MINIMIZED:
             case SDL_WINDOWEVENT_RESTORED:
                 newevent.type = SDL_ACTIVEEVENT;
+                /* Save proxied window event type. */
+                _ACIVEEV_WINEV_TYPE(newevent) = window_ev;
                 SDL_PushEvent(&newevent);
         }
     }
@@ -505,7 +580,7 @@ pg_event_filter(void *_, SDL_Event *event)
 
         PG_LOCK_EVFILTER_MUTEX
         input_buffer[INPUT_BUFFER_PRESSED_OFFSET +
-                     event->key.keysym.scancode] = 1;
+                     EVENT_KEY_SCANCODE(*event)] = 1;
         if (pg_key_repeat_delay > 0) {
             if (_pg_repeat_timer)
                 SDL_RemoveTimer(_pg_repeat_timer);
@@ -536,9 +611,9 @@ pg_event_filter(void *_, SDL_Event *event)
     else if (event->type == SDL_KEYUP) {
         PG_LOCK_EVFILTER_MUTEX
         input_buffer[INPUT_BUFFER_RELEASED_OFFSET +
-                     event->key.keysym.scancode] = 1;
-        if (_pg_repeat_timer && _pg_repeat_event.key.keysym.scancode ==
-                                    event->key.keysym.scancode) {
+                     EVENT_KEY_SCANCODE(*event)] = 1;
+        if (_pg_repeat_timer && EVENT_KEY_SCANCODE(_pg_repeat_event) ==
+                                    EVENT_KEY_SCANCODE(*event)) {
             SDL_RemoveTimer(_pg_repeat_timer);
             _pg_repeat_timer = 0;
         }
@@ -575,20 +650,20 @@ pg_event_filter(void *_, SDL_Event *event)
         newdownevent.type = SDL_MOUSEBUTTONDOWN;
         newdownevent.button.x = x;
         newdownevent.button.y = y;
-        newdownevent.button.state = SDL_PRESSED;
+        EVENT_KEY_STATE(newdownevent) = PG_PRESSED;
         newdownevent.button.clicks = 1;
         newdownevent.button.which = event->button.which;
 
         newupevent.type = SDL_MOUSEBUTTONUP;
         newupevent.button.x = x;
         newupevent.button.y = y;
-        newupevent.button.state = SDL_RELEASED;
+        EVENT_KEY_STATE(newupevent) = PG_RELEASED;
         newupevent.button.clicks = 1;
         newupevent.button.which = event->button.which;
 
         /* Use a for loop to simulate multiple events, because SDL 1
          * works that way */
-        for (i = 0; i < abs(event->wheel.y); i++) {
+        for (i = 0; i < abs((int)event->wheel.y); i++) {
             /* Do this in the loop because button.button is mutated before it
              * is posted from this filter */
             if (event->wheel.y > 0) {
@@ -715,9 +790,9 @@ static PyObject *
 get_joy_guid(int device_index)
 {
     char strguid[33];
-    SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(device_index);
+    SDL_JoystickGUID guid = PG_JoystickGetGUID(device_index);
 
-    SDL_JoystickGetGUIDString(guid, strguid, 33);
+    PG_JoystickGUID2String(guid, strguid, 33);
     return PyUnicode_FromString(strguid);
 }
 
@@ -755,7 +830,7 @@ dict_or_obj_from_event(SDL_Event *event)
             _pg_insobj(dict, "h", PyLong_FromLong(event->window.data2));
             break;
         case SDL_ACTIVEEVENT:
-            switch (event->window.event) {
+            switch (_ACIVEEV_WINEV_TYPE(*event)) {
                 case SDL_WINDOWEVENT_ENTER:
                     gain = 1;
                     state = SDL_APPMOUSEFOCUS;
@@ -777,7 +852,8 @@ dict_or_obj_from_event(SDL_Event *event)
                     state = SDL_APPACTIVE;
                     break;
                 default:
-                    assert(event->window.event == SDL_WINDOWEVENT_RESTORED);
+                    assert(_ACIVEEV_WINEV_TYPE(*event) ==
+                           SDL_WINDOWEVENT_RESTORED);
                     gain = 1;
                     state = SDL_APPACTIVE;
             }
@@ -790,10 +866,10 @@ dict_or_obj_from_event(SDL_Event *event)
             /* this accesses state also accessed the event filter, so lock */
             _pg_insobj(dict, "unicode", _pg_get_event_unicode(event));
             PG_UNLOCK_EVFILTER_MUTEX
-            _pg_insobj(dict, "key", PyLong_FromLong(event->key.keysym.sym));
-            _pg_insobj(dict, "mod", PyLong_FromLong(event->key.keysym.mod));
+            _pg_insobj(dict, "key", PyLong_FromLong(EVENT_KEY(*event)));
+            _pg_insobj(dict, "mod", PyLong_FromLong(EVENT_KEY_MODE(*event)));
             _pg_insobj(dict, "scancode",
-                       PyLong_FromLong(event->key.keysym.scancode));
+                       PyLong_FromLong(EVENT_KEY_SCANCODE(*event)));
             break;
         case SDL_MOUSEMOTION:
             obj = pg_tuple_couple_from_values_int(event->motion.x,
@@ -889,17 +965,31 @@ dict_or_obj_from_event(SDL_Event *event)
                                    // event (valid until next
                                    // SDL_GetNumAudioDevices() call),
                                    // SDL_AudioDeviceID for the REMOVED event
-            _pg_insobj(dict, "iscapture",
-                       PyLong_FromLong(event->adevice.iscapture));
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+            PyObject *recording = PyLong_FromLong(event->adevice.recording);
+#else
+            PyObject *recording = PyLong_FromLong(event->adevice.iscapture);
+#endif
+            Py_INCREF(recording);
+            _pg_insobj(dict, "iscapture", recording);
+            _pg_insobj(dict, "recording",
+                       recording); /* also use the modern name */
             break;
         case SDL_FINGERMOTION:
         case SDL_FINGERDOWN:
         case SDL_FINGERUP:
             /* https://wiki.libsdl.org/SDL_TouchFingerEvent */
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+            _pg_insobj(dict, "touch_id",
+                       PyLong_FromLongLong(event->tfinger.touchID));
+            _pg_insobj(dict, "finger_id",
+                       PyLong_FromLongLong(event->tfinger.fingerID));
+#else
             _pg_insobj(dict, "touch_id",
                        PyLong_FromLongLong(event->tfinger.touchId));
             _pg_insobj(dict, "finger_id",
                        PyLong_FromLongLong(event->tfinger.fingerId));
+#endif
             _pg_insobj(dict, "x", PyFloat_FromDouble(event->tfinger.x));
             _pg_insobj(dict, "y", PyFloat_FromDouble(event->tfinger.y));
             _pg_insobj(dict, "dx", PyFloat_FromDouble(event->tfinger.dx));
@@ -907,6 +997,7 @@ dict_or_obj_from_event(SDL_Event *event)
             _pg_insobj(dict, "pressure",
                        PyFloat_FromDouble(event->tfinger.dy));
             break;
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
         case SDL_MULTIGESTURE:
             /* https://wiki.libsdl.org/SDL_MultiGestureEvent */
             _pg_insobj(dict, "touch_id",
@@ -920,6 +1011,7 @@ dict_or_obj_from_event(SDL_Event *event)
             _pg_insobj(dict, "num_fingers",
                        PyLong_FromLong(event->mgesture.numFingers));
             break;
+#endif
         case SDL_MOUSEWHEEL:
             /* https://wiki.libsdl.org/SDL_MouseWheelEvent */
 #ifndef NO_SDL_MOUSEWHEEL_FLIPPED
@@ -929,24 +1021,25 @@ dict_or_obj_from_event(SDL_Event *event)
 #else
             _pg_insobj(dict, "flipped", PyBool_FromLong(0));
 #endif
-            _pg_insobj(dict, "x", PyLong_FromLong(event->wheel.x));
-            _pg_insobj(dict, "y", PyLong_FromLong(event->wheel.y));
+            _pg_insobj(dict, "x", PyLong_FromLong((long)event->wheel.x));
+            _pg_insobj(dict, "y", PyLong_FromLong((long)event->wheel.y));
 
-#if SDL_VERSION_ATLEAST(2, 0, 18)
+#if SDL_VERSION_ATLEAST(2, 0, 18) && !SDL_VERSION_ATLEAST(3, 0, 0)
             _pg_insobj(dict, "precise_x",
                        PyFloat_FromDouble((double)event->wheel.preciseX));
             _pg_insobj(dict, "precise_y",
                        PyFloat_FromDouble((double)event->wheel.preciseY));
 
-#else /* ~SDL_VERSION_ATLEAST(2, 0, 18) */
+#else /* ~SDL_VERSION_ATLEAST(2, 0, 18) || SDL_VERSION_ATLEAST(3, 0, 0) */
             /* fallback to regular x and y when SDL version used does not
              * support precise fields */
+            /* for SDL3, event->wheel.(x/y) is already precise */
             _pg_insobj(dict, "precise_x",
                        PyFloat_FromDouble((double)event->wheel.x));
             _pg_insobj(dict, "precise_y",
                        PyFloat_FromDouble((double)event->wheel.y));
 
-#endif /* ~SDL_VERSION_ATLEAST(2, 0, 18) */
+#endif /* ~SDL_VERSION_ATLEAST(2, 0, 18) || SDL_VERSION_ATLEAST(3, 0, 0) */
             _pg_insobj(
                 dict, "touch",
                 PyBool_FromLong((event->wheel.which == SDL_TOUCH_MOUSEID)));
@@ -964,12 +1057,18 @@ dict_or_obj_from_event(SDL_Event *event)
             break;
         /*  https://wiki.libsdl.org/SDL_DropEvent */
         case SDL_DROPFILE:
-            _pg_insobj(dict, "file", PyUnicode_FromString(event->drop.file));
-            SDL_free(event->drop.file);
+            _pg_insobj(dict, "file",
+                       PyUnicode_FromString(EVENT_DROP_DATA(*event)));
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+            SDL_free(EVENT_DROP_DATA(*event));
+#endif
             break;
         case SDL_DROPTEXT:
-            _pg_insobj(dict, "text", PyUnicode_FromString(event->drop.file));
-            SDL_free(event->drop.file);
+            _pg_insobj(dict, "text",
+                       PyUnicode_FromString(EVENT_DROP_DATA(*event)));
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+            SDL_free(EVENT_DROP_DATA(*event));
+#endif
             break;
         case SDL_DROPBEGIN:
         case SDL_DROPCOMPLETE:
@@ -977,16 +1076,19 @@ dict_or_obj_from_event(SDL_Event *event)
         case SDL_CONTROLLERAXISMOTION:
             /* https://wiki.libsdl.org/SDL_ControllerAxisEvent */
             _pg_insobj(dict, "instance_id",
-                       PyLong_FromLong(event->caxis.which));
-            _pg_insobj(dict, "axis", PyLong_FromLong(event->caxis.axis));
-            _pg_insobj(dict, "value", PyLong_FromLong(event->caxis.value));
+                       PyLong_FromLong(EVENT_JOY_AXIS(*event).which));
+            _pg_insobj(dict, "axis",
+                       PyLong_FromLong(EVENT_JOY_AXIS(*event).axis));
+            _pg_insobj(dict, "value",
+                       PyLong_FromLong(EVENT_JOY_AXIS(*event).value));
             break;
         case SDL_CONTROLLERBUTTONDOWN:
         case SDL_CONTROLLERBUTTONUP:
             /* https://wiki.libsdl.org/SDL_ControllerButtonEvent */
             _pg_insobj(dict, "instance_id",
-                       PyLong_FromLong(event->cbutton.which));
-            _pg_insobj(dict, "button", PyLong_FromLong(event->cbutton.button));
+                       PyLong_FromLong(EVENT_JOY_BUTTON(*event).which));
+            _pg_insobj(dict, "button",
+                       PyLong_FromLong(EVENT_JOY_BUTTON(*event).button));
             break;
         case SDL_CONTROLLERDEVICEADDED:
             _pg_insobj(dict, "device_index",
@@ -1013,17 +1115,24 @@ dict_or_obj_from_event(SDL_Event *event)
         case SDL_CONTROLLERTOUCHPADMOTION:
         case SDL_CONTROLLERTOUCHPADUP:
             _pg_insobj(dict, "instance_id",
-                       PyLong_FromLong(event->ctouchpad.which));
-            _pg_insobj(dict, "touch_id",
-                       PyLong_FromLongLong(event->ctouchpad.touchpad));
+                       PyLong_FromLong(EVENT_JOY_TOUCHPAD(*event).which));
+            _pg_insobj(
+                dict, "touch_id",
+                PyLong_FromLongLong(EVENT_JOY_TOUCHPAD(*event).touchpad));
             _pg_insobj(dict, "finger_id",
-                       PyLong_FromLongLong(event->ctouchpad.finger));
-            _pg_insobj(dict, "x", PyFloat_FromDouble(event->ctouchpad.x));
-            _pg_insobj(dict, "y", PyFloat_FromDouble(event->ctouchpad.y));
-            _pg_insobj(dict, "pressure",
-                       PyFloat_FromDouble(event->ctouchpad.pressure));
+                       PyLong_FromLongLong(EVENT_JOY_TOUCHPAD(*event).finger));
+            _pg_insobj(dict, "x",
+                       PyFloat_FromDouble(EVENT_JOY_TOUCHPAD(*event).x));
+            _pg_insobj(dict, "y",
+                       PyFloat_FromDouble(EVENT_JOY_TOUCHPAD(*event).y));
+            _pg_insobj(
+                dict, "pressure",
+                PyFloat_FromDouble(EVENT_JOY_TOUCHPAD(*event).pressure));
             break;
 #endif /*SDL_VERSION_ATLEAST(2, 0, 14)*/
+
+#if !defined(PG_SDL3)
+            // case SDL_SYSWMEVENT
 
 #ifdef WIN32
         case SDL_SYSWMEVENT:
@@ -1052,6 +1161,9 @@ dict_or_obj_from_event(SDL_Event *event)
             }
             break;
 #endif /* (defined(unix) || ... */
+
+#endif /* !defined(PG_SDL3) */
+
     } /* switch (event->type) */
     /* Events that don't have any attributes are not handled in switch
      * statement */
@@ -1124,7 +1236,7 @@ dict_or_obj_from_event(SDL_Event *event)
         }
     }
     PyObject *pgWindow;
-    if (!window || !(pgWindow = SDL_GetWindowData(window, "pg_window"))) {
+    if (!window || !(pgWindow = PG_GetWindowPoperty(window, "pg_window"))) {
         pgWindow = Py_None;
     }
     Py_INCREF(pgWindow);
@@ -1248,15 +1360,15 @@ set_grab(PyObject *self, PyObject *arg)
     SDL_Window *win = pg_GetDefaultWindow();
     if (win) {
         if (doit) {
-            SDL_SetWindowGrab(win, SDL_TRUE);
-            if (PG_CursorVisible() == SDL_DISABLE)
-                SDL_SetRelativeMouseMode(1);
+            PG_SetWindowMouseGrab(win, SDL_TRUE);
+            if (!PG_CursorVisible())
+                PG_SetWindowRelativeMouseMode(win, 1);
             else
-                SDL_SetRelativeMouseMode(0);
+                PG_SetWindowRelativeMouseMode(win, 0);
         }
         else {
-            SDL_SetWindowGrab(win, SDL_FALSE);
-            SDL_SetRelativeMouseMode(0);
+            PG_SetWindowMouseGrab(win, SDL_FALSE);
+            PG_SetWindowRelativeMouseMode(win, 0);
         }
     }
 
@@ -1272,7 +1384,7 @@ get_grab(PyObject *self, PyObject *_null)
     VIDEO_INIT_CHECK();
     win = pg_GetDefaultWindow();
     if (win)
-        mode = SDL_GetWindowGrab(win);
+        mode = PG_GetWindowMouseGrab(win);
     return PyBool_FromLong(mode);
 }
 
@@ -1287,11 +1399,13 @@ _pg_event_pump(int dopump)
         SDL_PumpEvents();
     }
 
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
     /* We need to translate WINDOWEVENTS. But if we do that from the
      * from event filter, internal SDL stuff that rely on WINDOWEVENT
      * might break. So after every event pump, we translate events from
      * here */
     SDL_FilterEvents(_pg_translate_windowevent, NULL);
+#endif
 }
 
 static int
@@ -1512,8 +1626,12 @@ pg_event_allowed_set(PyObject *self, PyObject *args)
                        e_flag ? SDL_TRUE : SDL_FALSE);
 
     // Never block events that are needed for proecesing.
-    if (e_type == SDL_WINDOWEVENT || e_type == PGE_KEYREPEAT)
+    if (e_type == PGE_KEYREPEAT)
         PG_SetEventEnabled(e_type, SDL_TRUE);
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+    else if (e_type == SDL_WINDOWEVENT)
+        PG_SetEventEnabled(e_type, SDL_TRUE);
+#endif
     else
         PG_SetEventEnabled(e_type, e_flag ? SDL_TRUE : SDL_FALSE);
 
